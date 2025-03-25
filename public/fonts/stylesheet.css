@@ -1,0 +1,13 @@
+@font-face {
+    font-family: 'Open Sauce One';
+    src: url('OpenSauceOne-Bold.eot');
+    src: url('OpenSauceOne-Bold.eot?#iefix') format('embedded-opentype'),
+        url('OpenSauceOne-Bold.woff2') format('woff2'),
+        url('OpenSauceOne-Bold.woff') format('woff'),
+        url('OpenSauceOne-Bold.ttf') format('truetype'),
+        url('OpenSauceOne-Bold.svg#OpenSauceOne-Bold') format('svg');
+    font-weight: bold;
+    font-style: normal;
+    font-display: swap;
+}
+

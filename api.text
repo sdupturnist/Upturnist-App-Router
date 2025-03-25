@@ -1,0 +1,587 @@
+<?php
+/**
+ * Theme functions and definitions.
+ *
+ * For additional information on potential customization options,
+ * read the developers' documentation:
+ *
+ * https://developers.elementor.com/docs/hello-elementor-theme/
+ *
+ * @package HelloElementorChild
+ */
+
+if ( ! defined( 'ABSPATH' ) ) {
+	exit; // Exit if accessed directly.
+}
+
+define( 'HELLO_ELEMENTOR_CHILD_VERSION', '2.0.0' );
+
+/**
+ * Load child theme scripts & styles.
+ *
+ * @return void
+ */
+function hello_elementor_child_scripts_styles() {
+
+	wp_enqueue_style(
+		'hello-elementor-child-style',
+		get_stylesheet_directory_uri() . '/style.css',
+		[
+			'hello-elementor-theme-style',
+		],
+		HELLO_ELEMENTOR_CHILD_VERSION
+	);
+
+}
+add_action( 'wp_enqueue_scripts', 'hello_elementor_child_scripts_styles', 20 );
+
+
+
+////////MENU
+// Register the custom REST API endpoint
+function register_site_menu_endpoint() {
+    register_rest_route('sitemenu/v1', '/menus/(?P<slug>[\w-]+)', array(
+        'methods' => 'GET',
+        'callback' => 'get_menu_by_slug',
+    ));
+}
+
+// Callback function to handle the request
+function get_menu_by_slug($data) {
+    $slug = $data['slug'];
+    $menu = wp_get_nav_menu_object($slug);
+
+    if (!$menu) {
+        return new WP_Error('no_menu', 'Menu not found', array('status' => 404));
+    }
+
+    $menu_items = wp_get_nav_menu_items($menu->term_id);
+
+    // Loop through menu items and add ACF fields
+    foreach ($menu_items as $item) {
+        // Get ACF fields for this menu item
+        $acf_fields = get_fields($item->ID);
+
+        // Check if the ACF fields exist and add to the response
+        if ($acf_fields) {
+            $item->acf = $acf_fields;
+            // Retrieve the image ID from the 'icon' field
+            if (isset($acf_fields['icon'])) {
+                $image_id = $acf_fields['icon'];
+                // Get the URL of the image
+                $image_url = wp_get_attachment_image_url($image_id, 'full'); // Change 'full' to desired size if needed
+                $item->acf['icon_url'] = $image_url; // Add the URL to the response
+            }
+        } else {
+            $item->acf = [];
+        }
+    }
+
+    return new WP_REST_Response($menu_items, 200);
+}
+
+// Hook the function into the REST API initialization
+add_action('rest_api_init', 'register_site_menu_endpoint');
+
+
+
+//https://demo.upturnist.com/wp-json/sitemenu/v1/menus/footer-menu
+
+
+//CUSTOM REPETABLE FIELD FOR PAGES
+// Step 1: Add Meta Box
+// Step 1: Add Meta Box
+// Step 1: Add the Meta Box
+function custom_repeater_meta_box() {
+    add_meta_box(
+        'custom_repeater_meta_box',
+        'Main Content Repeater Fields',
+        'render_repeater_meta_box',
+        'page',
+        'normal',
+        'high'
+    );
+}
+add_action('add_meta_boxes', 'custom_repeater_meta_box');
+
+// Step 2: Render the Meta Box
+function render_repeater_meta_box($post) {
+    $values = get_post_meta($post->ID, '_main_content_repeater_fields', true);
+    $values = $values ? $values : array();
+
+    wp_nonce_field('custom_repeater_nonce_action', 'custom_repeater_nonce');
+
+    echo '<table class="repeater-table" style="width: 100%; border-collapse: collapse;">';
+    echo '<thead>';
+    echo '<tr>';
+    echo '<th style="border: 1px solid #ccc; padding: 8px;">Title</th>';
+    echo '<th style="border: 1px solid #ccc; padding: 8px;">Description</th>';
+    echo '<th style="border: 1px solid #ccc; padding: 8px;">Image</th>';
+    echo '<th style="border: 1px solid #ccc; padding: 8px;">Actions</th>';
+    echo '</tr>';
+    echo '</thead>';
+    echo '<tbody id="repeater-container">';
+    foreach ($values as $index => $value) {
+        $title = isset($value['title']) ? esc_attr($value['title']) : '';
+        $description = isset($value['description']) ? $value['description'] : '';
+        $image_id = isset($value['image_id']) ? esc_attr($value['image_id']) : '';
+        $image_url = $image_id ? wp_get_attachment_url($image_id) : '';
+        $image_alt = $image_id ? get_post_meta($image_id, '_wp_attachment_image_alt', true) : '';
+
+        echo '<tr class="repeater-item">';
+        echo '<td style="border: 1px solid #ccc; padding: 8px;">';
+        echo '<input type="text" name="repeater_fields[' . $index . '][title]" value="' . $title . '" placeholder="Title" style="width: 100%;" />';
+        echo '</td>';
+        echo '<td style="border: 1px solid #ccc; padding: 8px;" class="description-cell" data-index="' . $index . '">';
+        echo '<div class="editor-wrapper" id="editor-wrapper-' . $index . '">';
+        wp_editor($description, 'repeater_editor_' . $index, [
+            'textarea_name' => 'repeater_fields[' . $index . '][description]',
+            'media_buttons' => true,
+            'textarea_rows' => 5,
+            'teeny' => true,
+            'quicktags' => false
+        ]);
+        echo '</div>';
+        echo '</td>';
+        echo '<td style="border: 1px solid #ccc; padding: 8px;">';
+        echo '<input type="hidden" name="repeater_fields[' . $index . '][image_id]" value="' . $image_id . '" />';
+        echo '<img class="repeater-image" src="' . esc_url($image_url) . '" alt="' . esc_attr($image_alt) . '" style="max-width:100px; display:' . ($image_url ? 'block' : 'none') . ';" />';
+        echo '<button class="upload-image-button">Upload Image</button>';
+        echo '</td>';
+        echo '<td style="border: 1px solid #ccc; padding: 8px;">';
+        echo '<button class="remove-item">Remove</button>';
+        echo '</td>';
+        echo '</tr>';
+    }
+    echo '</tbody>';
+    echo '</table>';
+    echo '<button id="add-item" style="margin-top: 10px;">Add Item</button>';
+}
+
+// Step 3: Save Custom Meta Box Data
+function save_repeater_meta_box($post_id) {
+    if (!isset($_POST['custom_repeater_nonce']) || !wp_verify_nonce($_POST['custom_repeater_nonce'], 'custom_repeater_nonce_action')) {
+        return;
+    }
+
+    if (defined('DOING_AUTOSAVE') && DOING_AUTOSAVE) {
+        return;
+    }
+
+    if (isset($_POST['repeater_fields'])) {
+        $data = array_map(function($field) {
+            $image_id = intval($field['image_id']);
+            return array(
+                'title' => sanitize_text_field($field['title']),
+                'description' => wp_kses_post($field['description']),
+                'image_id' => $image_id ? $image_id : null,
+            );
+        }, $_POST['repeater_fields']);
+
+        update_post_meta($post_id, '_main_content_repeater_fields', $data);
+    } else {
+        delete_post_meta($post_id, '_main_content_repeater_fields');
+    }
+}
+add_action('save_post', 'save_repeater_meta_box');
+
+// Step 4: Enqueue JavaScript for Dynamic Fields
+function enqueue_custom_repeater_scripts() {
+    wp_enqueue_script('jquery');
+    wp_enqueue_media();
+
+    wp_add_inline_script('jquery', "
+        jQuery(document).ready(function($) {
+            var index = $('#repeater-container .repeater-item').length;
+
+            $('#add-item').on('click', function(e) {
+                e.preventDefault();
+                $('#repeater-container').append(
+                    '<tr class=\"repeater-item\">' +
+                    '<td style=\"border: 1px solid #ccc; padding: 8px;\"><input type=\"text\" name=\"repeater_fields[' + index + '][title]\" placeholder=\"Title\" style=\"width: 100%;\" /></td>' +
+                    '<td style=\"border: 1px solid #ccc; padding: 8px;\" class=\"description-cell\" data-index=\"' + index + '\"><div class=\"editor-wrapper\" id=\"editor-wrapper-' + index + '\"></div></td>' +
+                    '<td style=\"border: 1px solid #ccc; padding: 8px;\"><input type=\"hidden\" name=\"repeater_fields[' + index + '][image_id]\" /><img class=\"repeater-image\" src=\"\" style=\"max-width:100px; display:none;\" /><button class=\"upload-image-button\">Upload Image</button></td>' +
+                    '<td style=\"border: 1px solid #ccc; padding: 8px;\"><button class=\"remove-item\">Remove</button></td>' +
+                    '</tr>'
+                );
+
+                var descriptionCell = $('#repeater-container .description-cell[data-index=' + index + ']');
+                var editorId = 'repeater_editor_' + index;
+
+                descriptionCell.find('.editor-wrapper').html('<div id=\"' + editorId + '\"></div>');
+                wp.editor.initialize(editorId, {
+                    tinymce: {
+                        toolbar: 'bold italic underline | bullist numlist | link image',
+                        menubar: false,
+                        setup: function(editor) {
+                            editor.on('change', function() {
+                                editor.save();
+                            });
+                        }
+                    },
+                    quicktags: true
+                });
+
+                index++;
+            });
+
+            $('#repeater-container').on('click', '.remove-item', function(e) {
+                e.preventDefault();
+                $(this).closest('.repeater-item').remove();
+            });
+
+            $('#repeater-container').on('click', '.upload-image-button', function(e) {
+                e.preventDefault();
+                var button = $(this);
+                var item = button.closest('.repeater-item');
+                var imageInput = item.find('input[type=\"hidden\"]');
+                var imageElement = item.find('.repeater-image');
+
+                var mediaUploader = wp.media({
+                    title: 'Upload Image',
+                    button: {
+                        text: 'Use this image'
+                    },
+                    multiple: false
+                }).on('select', function() {
+                    var attachment = mediaUploader.state().get('selection').first().toJSON();
+                    imageInput.val(attachment.id);
+                    imageElement.attr('src', attachment.url).show();
+                }).open();
+            });
+
+            $(document).on('submit', 'form', function() {
+                $('#repeater-container .description-cell').each(function() {
+                    var editorId = 'repeater_editor_' + $(this).data('index');
+                    if (tinymce.get(editorId)) {
+                        tinymce.get(editorId).save();
+                    }
+                });
+            });
+        });
+    ");
+}
+add_action('admin_enqueue_scripts', 'enqueue_custom_repeater_scripts');
+
+// Step 5: Register Custom Fields in GraphQL
+add_action('graphql_register_types', function() {
+    register_graphql_object_type('MainContentRepeaterField', [
+        'description' => 'A main content repeater field.',
+        'fields' => [
+            'title' => [
+                'type' => 'String',
+                'description' => 'The title of the repeater field.',
+            ],
+            'description' => [
+                'type' => 'String',
+                'description' => 'The description of the repeater field.',
+            ],
+            'image_id' => [
+                'type' => 'ID',
+                'description' => 'The ID of the image.',
+            ],
+            'image_url' => [
+                'type' => 'String',
+                'description' => 'The URL of the image.',
+                'resolve' => function($field) {
+                    return isset($field['image_id']) ? wp_get_attachment_url($field['image_id']) : null;
+                },
+            ],
+            'image_alt' => [
+                'type' => 'String',
+                'description' => 'The alt text for the image.',
+                'resolve' => function($field) {
+                    return isset($field['image_id']) ? get_post_meta($field['image_id'], '_wp_attachment_image_alt', true) : null;
+                },
+            ],
+        ],
+    ]);
+
+    register_graphql_field('Page', 'mainContentRepeaterFields', [
+        'type' => ['list_of' => 'MainContentRepeaterField'],
+        'resolve' => function($post) {
+            $values = get_post_meta($post->ID, '_main_content_repeater_fields', true);
+            return $values ? $values : [];
+        },
+    ]);
+});
+
+// Step 6: Display the Repeater Fields on the Front End
+function display_repeater_fields() {
+    $values = get_post_meta(get_the_ID(), '_main_content_repeater_fields', true);
+    if ($values) {
+        echo '<div class="main-content-repeater">';
+        foreach ($values as $value) {
+            echo '<div class="repeater-item">';
+            echo '<h3>' . esc_html($value['title']) . '</h3>';
+            echo '<div>' . wp_kses_post($value['description']) . '</div>'; // Allow HTML
+            if ($value['image_id']) {
+                // Get the image's alt text using the attachment ID
+                $image_alt = get_post_meta($value['image_id'], '_wp_attachment_image_alt', true);
+                $image_url = wp_get_attachment_url($value['image_id']);
+                
+                echo '<img src="' . esc_url($image_url) . '" alt="' . esc_attr($image_alt) . '" />';
+            }
+            echo '</div>';
+        }
+        echo '</div>';
+    }
+}
+
+
+
+
+
+//ADDIONAL SERVICES REPETER FIELD
+// Step 1: Add Custom Meta Box
+function additional_services_repeater_meta_box() {
+    add_meta_box(
+        'additional_services_repeater_meta_box',
+        'Content Repeater Additional Services',
+        'render_additional_services_repeater_meta_box',
+        'page',
+        'normal',
+        'high'
+    );
+}
+add_action('add_meta_boxes', 'additional_services_repeater_meta_box');
+
+function render_additional_services_repeater_meta_box($post) {
+    $values = get_post_meta($post->ID, '_additional_services_repeater_fields', true);
+    $values = $values ? $values : array();
+
+    wp_nonce_field('additional_services_repeater_nonce_action', 'additional_services_repeater_nonce');
+
+    echo '<table class="repeater-table" style="width: 100%; border-collapse: collapse;">';
+    echo '<thead>';
+    echo '<tr>';
+    echo '<th style="border: 1px solid #ccc; padding: 8px;">Service Title</th>';
+    echo '<th style="border: 1px solid #ccc; padding: 8px;">Service Description</th>';
+    echo '<th style="border: 1px solid #ccc; padding: 8px;">Service Image</th>';
+    echo '<th style="border: 1px solid #ccc; padding: 8px;">Image Alt Text</th>'; // New column for alt text
+    echo '<th style="border: 1px solid #ccc; padding: 8px;">Actions</th>';
+    echo '</tr>';
+    echo '</thead>';
+    echo '<tbody id="additional-services-repeater-container">';
+    foreach ($values as $index => $value) {
+        $title = isset($value['title']) ? esc_attr($value['title']) : '';
+        $description = isset($value['description']) ? $value['description'] : '';
+        $image_id = isset($value['image_id']) ? esc_attr($value['image_id']) : '';
+        $image_url = $image_id ? wp_get_attachment_url($image_id) : '';
+        $image_alt = isset($value['image_alt']) ? esc_attr($value['image_alt']) : ''; // Get the alt text
+
+        echo '<tr class="repeater-item">';
+        echo '<td style="border: 1px solid #ccc; padding: 8px;">';
+        echo '<input type="text" name="additional_services_fields[' . $index . '][title]" value="' . $title . '" placeholder="Service Title" style="width: 100%;" />';
+        echo '</td>';
+        echo '<td style="border: 1px solid #ccc; padding: 8px;" class="description-cell" data-index="' . $index . '">';
+        echo '<div class="editor-wrapper" id="additional-services-editor-wrapper-' . $index . '">';
+        wp_editor($description, 'additional_services_editor_' . $index, [
+            'textarea_name' => 'additional_services_fields[' . $index . '][description]',
+            'media_buttons' => true,
+            'textarea_rows' => 5,
+            'teeny' => true,
+            'quicktags' => false
+        ]);
+        echo '</div>';
+        echo '</td>';
+        echo '<td style="border: 1px solid #ccc; padding: 8px;">';
+        echo '<input type="hidden" name="additional_services_fields[' . $index . '][image_id]" value="' . $image_id . '" />';
+        echo '<img class="repeater-image" src="' . esc_url($image_url) . '" style="max-width:100px; display:' . ($image_url ? 'block' : 'none') . ';" />';
+        echo '<button class="upload-image-button">Upload Image</button>';
+        echo '</td>';
+        echo '<td style="border: 1px solid #ccc; padding: 8px;">';
+        echo '<input type="text" name="additional_services_fields[' . $index . '][image_alt]" value="' . $image_alt . '" placeholder="Image Alt Text" style="width: 100%;" />'; // Input for alt text
+        echo '</td>';
+        echo '<td style="border: 1px solid #ccc; padding: 8px;">';
+        echo '<button class="remove-item">Remove</button>';
+        echo '</td>';
+        echo '</tr>';
+    }
+    echo '</tbody>';
+    echo '</table>';
+    echo '<button id="add-additional-service" style="margin-top: 10px;">Add Service</button>';
+}
+
+function save_additional_services_repeater_meta_box($post_id) {
+    if (!isset($_POST['additional_services_repeater_nonce']) || !wp_verify_nonce($_POST['additional_services_repeater_nonce'], 'additional_services_repeater_nonce_action')) {
+        return;
+    }
+
+    if (defined('DOING_AUTOSAVE') && DOING_AUTOSAVE) {
+        return;
+    }
+
+    if (isset($_POST['additional_services_fields'])) {
+        $data = array_map(function($field) {
+            return array(
+                'title' => sanitize_text_field($field['title']),
+                'description' => wp_kses_post($field['description']),
+                'image_id' => intval($field['image_id']),
+                'image_alt' => sanitize_text_field($field['image_alt']), // Save alt text
+            );
+        }, $_POST['additional_services_fields']);
+
+        update_post_meta($post_id, '_additional_services_repeater_fields', $data);
+    } else {
+        delete_post_meta($post_id, '_additional_services_repeater_fields');
+    }
+}
+add_action('save_post', 'save_additional_services_repeater_meta_box');
+
+function enqueue_additional_services_repeater_scripts() {
+    wp_enqueue_script('jquery');
+    wp_enqueue_media();
+
+    wp_add_inline_script('jquery', "
+        jQuery(document).ready(function($) {
+            var index = $('#additional-services-repeater-container .repeater-item').length;
+
+            $('#add-additional-service').on('click', function(e) {
+                e.preventDefault();
+                $('#additional-services-repeater-container').append(
+                    '<tr class=\"repeater-item\">' +
+                    '<td style=\"border: 1px solid #ccc; padding: 8px;\"><input type=\"text\" name=\"additional_services_fields[' + index + '][title]\" placeholder=\"Service Title\" style=\"width: 100%;\" /></td>' +
+                    '<td style=\"border: 1px solid #ccc; padding: 8px;\" class=\"description-cell\" data-index=\"' + index + '\"><div class=\"editor-wrapper\" id=\"additional-services-editor-wrapper-' + index + '\"></div></td>' +
+                    '<td style=\"border: 1px solid #ccc; padding: 8px;\"><input type=\"hidden\" name=\"additional_services_fields[' + index + '][image_id]\" /><img class=\"repeater-image\" src=\"\" style=\"max-width:100px; display:none;\" /><button class=\"upload-image-button\">Upload Image</button></td>' +
+                    '<td style=\"border: 1px solid #ccc; padding: 8px;\"><input type=\"text\" name=\"additional_services_fields[' + index + '][image_alt]\" placeholder=\"Image Alt Text\" style=\"width: 100%;\" /></td>' + // Add Alt Text input field
+                    '<td style=\"border: 1px solid #ccc; padding: 8px;\"><button class=\"remove-item\">Remove</button></td>' +
+                    '</tr>'
+                );
+
+                var newIndex = index;
+                var descriptionCell = $('#additional-services-repeater-container .description-cell[data-index=' + newIndex + ']');
+                var editorId = 'additional_services_editor_' + newIndex;
+
+                descriptionCell.find('.editor-wrapper').html('<div id=\"' + editorId + '\"></div>');
+                wp.editor.initialize(editorId, {
+                    tinymce: {
+                        toolbar: 'bold italic underline | bullist numlist | link image',
+                        menubar: false,
+                        setup: function(editor) {
+                            editor.on('change', function() {
+                                editor.save();
+                            });
+                        }
+                    },
+                    quicktags: true
+                });
+
+                index++;
+            });
+
+            $('#additional-services-repeater-container').on('click', '.remove-item', function(e) {
+                e.preventDefault();
+                $(this).closest('.repeater-item').remove();
+            });
+
+            $('#additional-services-repeater-container').on('click', '.upload-image-button', function(e) {
+                e.preventDefault();
+                var button = $(this);
+                var item = button.closest('.repeater-item');
+                var imageInput = item.find('input[type=\"hidden\"]');
+                var imageElement = item.find('.repeater-image');
+
+                var mediaUploader = wp.media({
+                    title: 'Upload Image',
+                    button: {
+                        text: 'Use this image'
+                    },
+                    multiple: false
+                }).on('select', function() {
+                    var attachment = mediaUploader.state().get('selection').first().toJSON();
+                    imageInput.val(attachment.id);
+                    imageElement.attr('src', attachment.url).show();
+                }).open();
+            });
+        });
+    ");
+}
+add_action('admin_enqueue_scripts', 'enqueue_additional_services_repeater_scripts');
+
+add_action('graphql_register_types', function() {
+    register_graphql_object_type('AdditionalServicesRepeaterField', [
+        'description' => 'A content repeater field for additional services.',
+        'fields' => [
+            'title' => [
+                'type' => 'String',
+                'description' => 'The title of the additional service.',
+            ],
+            'description' => [
+                'type' => 'String',
+                'description' => 'The description of the additional service.',
+            ],
+            'image_id' => [
+                'type' => 'ID',
+                'description' => 'The ID of the service image.',
+            ],
+            'image_url' => [
+                'type' => 'String',
+                'description' => 'The URL of the service image.',
+                'resolve' => function($field) {
+                    return isset($field['image_id']) ? wp_get_attachment_url($field['image_id']) : null;
+                },
+            ],
+            'image_alt' => [
+                'type' => 'String',
+                'description' => 'The alt text of the service image.',
+                'resolve' => function($field) {
+                    return isset($field['image_alt']) ? $field['image_alt'] : null;
+                },
+            ],
+        ],
+    ]);
+
+    register_graphql_field('Page', 'additionalServicesRepeaterFields', [
+        'type' => ['list_of' => 'AdditionalServicesRepeaterField'],
+        'resolve' => function($post) {
+            $values = get_post_meta($post->ID, '_additional_services_repeater_fields', true);
+            return $values ? $values : [];
+        },
+    ]);
+});
+
+function display_additional_services_repeater_fields() {
+    $values = get_post_meta(get_the_ID(), '_additional_services_repeater_fields', true);
+    if ($values) {
+        echo '<div class="additional-services-repeater">';
+        foreach ($values as $value) {
+            echo '<div class="repeater-item">';
+            echo '<h3>' . esc_html($value['title']) . '</h3>';
+            echo '<div>' . wp_kses_post($value['description']) . '</div>';
+            if ($value['image_id']) {
+                $image_url = wp_get_attachment_url($value['image_id']);
+                $image_alt = isset($value['image_alt']) ? esc_attr($value['image_alt']) : $value['title']; // Fallback to title if alt is empty
+                echo '<img src="' . esc_url($image_url) . '" alt="' . esc_attr($image_alt) . '" />';
+            }
+            echo '</div>';
+        }
+        echo '</div>';
+    }
+}
+
+
+
+
+function add_cors_http_header() {
+    header("Access-Control-Allow-Origin: https://upturnist.com");
+    header("Access-Control-Allow-Methods: GET, POST, OPTIONS");
+    header("Access-Control-Allow-Headers: Content-Type, Authorization");
+}
+
+add_action('init', 'add_cors_http_header');
+
+function add_cors_headers_to_rest_api() {
+    header("Access-Control-Allow-Origin: https://upturnist.com");
+    header("Access-Control-Allow-Methods: GET, POST, OPTIONS");
+    header("Access-Control-Allow-Headers: Content-Type, Authorization");
+}
+
+add_action('rest_api_init', 'add_cors_headers_to_rest_api');
+
+
+//header("Access-Control-Allow-Origin: *");
+
+
+//3
+

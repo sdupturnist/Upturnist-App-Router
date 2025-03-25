@@ -1,0 +1,18 @@
+import Head from 'next/head';
+
+const UndefinedPage = () => {
+  return (
+    <>
+      <Head>
+        <meta name="robots" content="noindex, nofollow" />
+        <title>Page Title - Noindex</title>
+        {/* Other head elements */}
+      </Head>
+      <div>
+        {/* Page content */}
+      </div>
+    </>
+  );
+};
+
+export default UndefinedPage;
